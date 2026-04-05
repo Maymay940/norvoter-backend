@@ -1,0 +1,88 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: norvoter_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: norvoter
+      POSTGRES_USER: postgres2
+      POSTGRES_PASSWORD: 1qaz
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres2 -d norvoter"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:latest
+    container_name: norvoter_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: dracula
+
+  minio:
+    image: minio/minio:latest
+    container_name: norvoter_minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  backend:
+    build: .
+    container_name: norvoter_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: norvoter
+      DB_USER: postgres2
+      DB_PASSWORD: 1qaz
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: meters
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: sh -c "ls -la /app && pip install -r requirements.txt && python manage.py runserver 0.0.0.0:8000"
+
+  frontend:
+    build: ../frontend
+    container_name: norvoter_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  minio_data:

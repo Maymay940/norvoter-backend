@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Norvoter - Все заявки</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600&display=swap" rel="stylesheet">
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'meters/css/style.css' %}">
+</head>
+<body>
+    <div class="app">
+        <!--шапка-->
+        <header class="header">
+            <div class="container">
+                <div class="header__inner">
+                    <a href="/" class="header__logo">
+                        <img src="{% static 'meters/imagers/logo.png' %}" alt="Norvoter" class="logo__image">
+                        <span class="logo__text">Norvoter</span>
+                    </a>
+
+                    <nav class="header__nav">
+                        <a href="/" class="nav__link">счетчики</a>
+                        <a href="{% url 'request_list' %}" class="nav__link nav__link--active">заявки</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="container">
+                <div class="page-header">
+                    <h1 class="page-title">Все заявки</h1>
+                </div>
+
+                <div class="requests-grid">
+                    {% for request in requests %}
+                    <a href="{% url 'request_detail' request.id %}" class="request-card-link">
+                        <div class="request-card-compact">
+                            <div class="request-card-header">
+                                <span class="request-id">Заявка №{{ request.id }}</span>
+                                <span class="request-status-badge status-{{ request.status }}">
+                                    {% if request.status == 'draft' %}Черновик
+                                    {% elif request.status == 'submitted' %}Отправлено
+                                    {% elif request.status == 'completed' %}Завершено
+                                    {% elif request.status == 'rejected' %}Отклонено       <!--тот же вопрос, а надо ли сейчас, пусть будет-->
+                                    {% endif %}
+                                </span>
+                            </div>
+
+                            <div class="request-card-body">
+                                <div class="info-row">
+                                    <span class="info-label">Дата:</span>
+                                    <span class="info-value">{{ request.created_at|date:"d.m.Y H:i" }}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Счетчиков:</span>
+                                    <span class="info-value">{{ request.positions_count }}</span>
+                                </div>
+
+                                {% if request.total_consumption %}
+                                <div class="info-row highlight">
+                                    <span class="info-label">Сумма:</span>
+                                    <span class="info-value">{{ request.amount_to_pay }} ₽</span>
+                                </div>
+                                {% endif %}
+                            </div>
+
+                            <div class="request-card-footer">
+                                <span class="btn btn-primary btn-compact">подробнее</span>
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

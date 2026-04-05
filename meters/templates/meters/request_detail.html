@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Norvoter - Заявка №{{ request_obj.id }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600&display=swap" rel="stylesheet">
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'meters/css/style.css' %}">
+</head>
+<body>
+    <div class="app">
+        <!--шапка-->
+        <header class="header">
+            <div class="container">
+                <div class="header__inner">
+                    <a href="/" class="header__logo">
+                        <img src="{% static 'meters/imagers/logo.png' %}" alt="Norvoter" class="logo__image">
+                        <span class="logo__text">Norvoter</span>
+                    </a>
+
+                    <nav class="header__nav">
+                        <a href="/" class="nav__link">счетчики</a>
+                        <a href="{% url 'request_list' %}" class="nav__link nav__link--active">заявки</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="container">
+                <div class="page-header">
+                    <h1 class="page-title">Заявка №{{ request_obj.id }}</h1>
+                    <span class="request-status-badge status-{{ request_obj.status }}">
+                        {% if request_obj.status == 'draft' %}Черновик
+                        {% elif request_obj.status == 'submitted' %}Отправлено
+                        {% elif request_obj.status == 'completed' %}Завершено    <!--пу пу пу а надо ли в моем случае-->
+                        {% elif request_obj.status == 'rejected' %}Отклонено
+                        {% elif request_obj.status == 'deleted' %}Удалено
+                        {% endif %}
+                    </span>
+                </div>
+
+                <!--карточка заявки-->
+                <div class="request-view-card">
+                    <div class="request-info">
+                        <div class="info-row">
+                            <span class="info-label">Дата создания:</span>
+                            <span class="info-value">{{ request_obj.created_at|date:"d.m.Y H:i" }}</span>
+                        </div>
+
+                       <!-- {% if request_obj.submitted_at %}
+                        <div class="info-row">
+                            <span class="info-label">Дата отправки:</span>
+                            <span class="info-value">{{ request_obj.submitted_at|date:"d.m.Y H:i" }}</span>
+                        </div>
+                        {% endif %}-->
+
+                        {% if request_obj.completed_at %}
+                        <div class="info-row">
+                            <span class="info-label">Дата завершения:</span>
+                            <span class="info-value">{{ request_obj.completed_at|date:"d.m.Y H:i" }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!--список счетчиков в заявке-->
+                    <h2 class="section-title">Показания счетчиков</h2>
+                    <div class="request-meters-list">
+                        {% for position in positions %}
+                        <div class="request-meter-item">
+                            <div class="meter-address">
+                                {{ position.water_meter.address }} |
+                                {% if position.water_meter.meter_type == 'HOT' %}ГВС{% else %}ХВС{% endif %}
+                            </div>
+                            <div class="meter-readings">
+                                <span class="reading-item">
+                                    <span class="reading-label">Предыдущие:</span>
+                                    <span class="reading-value">{{ position.water_meter.last_verified_reading }}</span>
+                                </span>
+                                <span class="reading-item">
+                                    <span class="reading-label">Текущие:</span>
+                                    <span class="reading-value">{{ position.current_reading }}</span>
+                                </span>
+                                <span class="reading-item">
+                                    <span class="reading-label">Расход:</span>
+                                    <span class="reading-value highlight">{{ position.consumption }} м³</span>
+                                </span>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="empty-state">
+                            <a href="/" class="btn btn-primary">добавить счетчик</a>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    {% if positions %}
+                    <div class="request-totals">
+                        <div class="total-row">
+                            <span class="total-label">Общий расход:</span>
+                            <span class="total-value">
+                                {{ total_consumption }} м³
+                            </span>
+                        </div>
+                        <div class="total-row highlight-row">
+                            <span class="total-label">Сумма к оплате:</span>
+                            <span class="total-value large">
+                                {{ amount_to_pay }} ₽
+                            </span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!--кнопки-->
+                    <div class="request-actions">
+                        {% if request_obj.status == 'draft' %}
+                            <form action="{% url 'delete_request' request_obj.id %}" method="POST" style="display: inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-secondary" onclick="return confirm('Удалить черновик заявки?')">
+                                    удалить черновик
+                                </button>
+                            </form>
+                            <a href="/" class="btn btn-primary">добавить счетчик</a>
+                            <a href="{% url 'submit_request' request_obj.id %}" class="btn btn-success">подать показания</a>
+
+                        {% elif request_obj.status == 'submitted' %}
+                            <div class="status-message info">
+                                Заявка отправлена.
+                            </div>
+
+                        {% elif request_obj.status == 'completed' %}
+                            <div class="status-message success">
+                                Заявка завершена.
+                            </div>
+                                                                                      <!--пу пу пу а надо ли в моем случае-->
+                        {% elif request_obj.status == 'rejected' %}
+                            <div class="status-message error">
+                                Заявка отклонена.
+                            </div>
+                        {% endif %}
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

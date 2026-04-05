@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Norvoter - Мои счетчики воды</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600&display=swap" rel="stylesheet">
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'meters/css/style.css' %}">
+</head>
+<body>
+    <!--видео-->
+    <div class="video-background">
+        <video autoplay muted loop playsinline class="background-video">
+            <source src="http://localhost:9000/meters/video/video_water.mp4" type="video/mp4">
+            Ваш браузер не поддерживает видео.
+        </video>
+        <div class="video-overlay"></div>
+    </div>
+
+    <div class="app">
+        <!--шапка-->
+        <header class="header header-transparent">
+            <div class="container">
+                <div class="header__inner">
+                    <a href="/" class="header__logo">
+                        <img src="{% static 'meters/imagers/logo.png' %}" alt="Norvoter" class="logo__image">
+                        <span class="logo__text">Norvoter</span>
+                    </a>
+
+                    <nav class="header__nav">
+                        <a href="/" class="nav__link nav__link--active">счетчики</a>
+                        <a href="{% url 'request_list' %}" class="nav__link">заявки</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="container">
+                <div class="page-header">
+                    <h1 class="page-title page-title-light">Счетчики</h1>
+                </div>
+
+                <!--поиск-->
+                <div class="search-section search-section-transparent">
+                    <form method="GET" action="{% url 'meter_list' %}" class="search-form"> <!--контейнер для отправки данных-->
+                        <div class="search-field search-field-light">
+                            <input
+                                type="text"
+                                name="search"
+                                class="search-input search-input-light"
+                                placeholder="Найти по адресу..."
+                                value="{{ search_query }}"
+                            >
+                            <button type="submit" class="search-button search-button-light">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M16 16L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!--карточеки-->
+                <div class="cards-grid">
+                    {% for meter in meters %}
+                    <div class="meter-card-compact meter-card-glass">
+                        <h3 class="compact-title">{{ meter.meter_model }} № {{ meter.serial_number }}</h3>
+                        <p class="compact-address">{{ meter.address }}</p>
+                        <p class="compact-type">Тип: {% if meter.meter_type == 'HOT' %}ГВС{% else %}ХВС{% endif %}</p>
+                        <div class="compact-footer">
+                            <span class="compact-days">{{ meter.last_verified_reading }}</span>
+                            <span class="compact-label">последние показания</span>
+                        </div>
+                        <a href="{% url 'meter_detail' meter.id %}" class="btn btn-primary btn-compact">подробнее</a>
+                    </div>
+                    {% empty %}
+                    <div class="empty-state empty-state-light">
+                        <p>Счетчики не найдены</p>
+                        <a href="/" class="btn btn-primary">обратно к списку</a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

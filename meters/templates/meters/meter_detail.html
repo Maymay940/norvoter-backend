@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Norvoter - Мои счетчики воды</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600&display=swap" rel="stylesheet">
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'meters/css/style.css' %}">
+</head>
+<body>
+    <div class="app">
+        <!--шапка-->
+        <header class="header">
+            <div class="container">
+                <div class="header__inner">
+                    <a href="/" class="header__logo">
+                        <img src="{% static 'meters/imagers/logo.png' %}" alt="Norvoter" class="logo__image">
+                        <span class="logo__text">Norvoter</span>
+                    </a>
+
+                    <nav class="header__nav">
+                        <a href="/" class="nav__link">счетчики</a>
+                        <a href="/requests/" class="nav__link">заявки</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="container">
+                <!--заголовок-->
+                <div class="page-header">
+                    <h1 class="page-title">{{ meter.address }}</h1>
+                </div>
+
+                <!--карточка счетчика-->
+                <div class="meter-card">
+                    <div class="card__image-col">
+                        {% if meter.photo_url %}
+                            <img src="{{ meter.photo_url }}" alt="Счетчик {{ meter.serial_number }}" class="meter-photo">
+                        {% else %}
+                            <img src="{% static 'images/no-image.jpg' %}" alt="Нет фото" class="meter-photo">
+                        {% endif %}
+
+                        {% if meter.setup_video_url %}
+                        <div class="video-section">
+                            <video class="meter-video" autoplay muted loop playsinline>
+                                <source src="{{ meter.setup_video_url }}" type="video/mp4">
+                                Ваш браузер не поддерживает видео.
+                            </video>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="card__content-col">
+                        <div class="info-block">
+                            <div class="info-line">
+                                <span class="info-label">Модель:</span>
+                                <span class="info-value">{{ meter.meter_model }} (№{{ meter.serial_number }})</span>
+                            </div>
+                            <div class="info-line">
+                                <span class="info-label">Тип:</span>
+                                <span class="info-value">{% if meter.meter_type == 'HOT' %}Горячая вода{% else %}Холодная вода{% endif %}</span>
+                            </div>
+                            <div class="info-line">
+                                <span class="info-label">Дата установки:</span>
+                                <span class="info-value">{{ meter.installation_date|date:"d.m.Y" }}</span>
+                            </div>
+                            <div class="info-line">
+                                <span class="info-label">Последние показания:</span>
+                                <span class="info-value">{{ meter.last_verified_reading }} м³ (подтверждено)</span>
+                            </div>
+                            {% if meter.next_verification_date %}
+                            <div class="info-line">
+                                <span class="info-label">Следующая поверка:</span>
+                                <span class="info-value">{{ meter.next_verification_date|date:"d.m.Y" }}</span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!--ввод показаний-->
+                        <form action="{% url 'add_reading' %}" method="POST" class="reading-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="meter_id" value="{{ meter.id }}">
+
+                            <div class="reading-section">
+                                <div class="reading-input-col">
+                                    <label for="current_reading" class="reading-label">Текущие показания:</label>
+                                    <input
+                                        type="number"
+                                        id="current_reading"
+                                        name="current_reading"
+                                        class="reading-input"
+                                        placeholder="Введите показания"
+                                        min="{{ meter.last_verified_reading }}"
+                                        max="999999999"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="reading-stats-col">
+                                    <div class="previous-reading">
+                                        <span class="stats-label">Предыдущие показания:</span>
+                                        <span class="previous-value">{{ meter.last_verified_reading }} м³</span>
+                                    </div>
+                                    <div class="calculated-consumption" id="consumption-display">
+                                        <span class="stats-label">Расход в этом месяце:</span>
+                                        <span class="stats-value" id="consumption-value">-- м³</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {% if error %}
+                            <div class="error-message" style="color: red; margin: 10px 0;">
+                                {{ error }}
+                            </div>
+                            {% endif %}
+
+                            <div class="card__actions">
+                                <button type="submit" class="btn btn-primary">передать показания</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!--скрипт для предварительного расчета расхода-->
+    <script>
+        const lastReading = {{ meter.last_verified_reading }};
+        const input = document.getElementById('current_reading');
+        const consumptionSpan = document.getElementById('consumption-value');
+
+        input.addEventListener('input', function() {
+            const currentValue = parseInt(this.value);
+            if (!isNaN(currentValue) && currentValue >= lastReading) {
+                const consumption = currentValue - lastReading;
+                consumptionSpan.textContent = consumption + ' м³';
+            } else {
+                consumptionSpan.textContent = '-- м³';
+            }
+        });
+    </script>
+</body>
+</html>
