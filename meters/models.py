@@ -9,6 +9,7 @@ class User(models.Model):
     phone = models.CharField("Телефон", max_length=20, blank=True, db_column="phone")
     is_active = models.BooleanField("Активен", default=True, db_column="is_active")
     created_at = models.DateTimeField("Дата регистрации", auto_now_add=True, db_column="created_at")
+    is_admin = models.BooleanField('Администратор', default=False)
 
     def __str__(self):
         return f"{self.username} ({self.first_name} {self.last_name})"
