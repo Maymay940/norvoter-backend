@@ -104,25 +104,29 @@ def request_detail(request, request_id):
     }
     return render(request, "meters/request_detail.html", context)
 
-
-def add_reading(request):  # post /add-reading/ добавление показаний
-    # добавление показаний в черновик
-    if request.method == "POST":
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def add_reading(request):
+    """Добавление показаний в черновик (JSON API)"""
+    if request.method == "OPTIONS":
+        return api_response_success(message="OK")
+    
+    try:
+        data = json.loads(request.body)
+        meter_id = data.get("meter_id")
+        current_reading = data.get("current_reading")
+        
         current_user = get_current_user()
-        meter_id = request.POST.get("meter_id")
-        current_reading = request.POST.get("current_reading")
-
-        # получение счетчик (без проверки пользователя)
         meter = get_object_or_404(WaterMeter, id=meter_id)
-
+        
         draft_request = Request.objects.filter(status="draft", user=current_user).first()
         if not draft_request:
             draft_request = Request.objects.create(status="draft", user=current_user)
-
+        
         existing_position = ReadingPosition.objects.filter(request=draft_request, water_meter=meter).first()
-
+        
         consumption = int(current_reading) - meter.last_verified_reading
-
+        
         if existing_position:
             existing_position.current_reading = current_reading
             existing_position.consumption = consumption
@@ -134,10 +138,10 @@ def add_reading(request):  # post /add-reading/ добавление показ�
                 current_reading=current_reading,
                 consumption=consumption,
             )
-
-        return redirect("request_detail", request_id=draft_request.id)
-
-    return redirect("meter_list")
+        
+        return api_response_success(data={"request_id": draft_request.id}, message="Показания добавлены")
+    except Exception as e:
+        return api_response_error(str(e), status=400)
 
 
 def submit_request(request, request_id):
@@ -283,7 +287,7 @@ def api_requests(request):
         
         # Админ видит все заявки, пользователь — только свои
         if current_user.is_admin:
-            queryset = Request.objects.exclude(status='deleted').exclude(status='draft')
+            queryset = Request.objects.exclude(status='deleted')
         else:
             queryset = Request.objects.filter(user=current_user).exclude(status='deleted').exclude(status='draft')
         
@@ -339,17 +343,13 @@ def api_request_detail(request, request_id):
         for pos in positions:
             positions_data.append({
                 "id": pos.id,
-                "water_meter": {
-                    "id": pos.water_meter.id,
-                    "address": pos.water_meter.address,
-                    "meter_type": pos.water_meter.meter_type,
-                    "meter_model": pos.water_meter.meter_model,
-                    "last_verified_reading": pos.water_meter.last_verified_reading,
-                    "photo_url": pos.water_meter.photo_url,
-                },
+                "water_meter__address": pos.water_meter.address,
+                "water_meter__meter_type": pos.water_meter.meter_type,
+                "water_meter__last_verified_reading": pos.water_meter.last_verified_reading,
+                "water_meter__photo_url": pos.water_meter.photo_url,
                 "current_reading": pos.current_reading,
                 "consumption": pos.consumption,
-            })
+        })
         
         data = {
             "id": request_obj.id,
@@ -391,30 +391,23 @@ def api_request_update(request, request_id):
 @csrf_exempt
 @require_http_methods(["PUT"])
 def api_submit_request(request, request_id):
-    """PUT сформировать заявку создателем (дата формирования, расчёт стоимости)"""
-    try:
-        current_user = get_current_user()
-        req = get_object_or_404(Request, id=request_id, user=current_user, status='draft')
-        
-        # проверка: есть ли позиции
-        positions = ReadingPosition.objects.filter(request=req)
-        if not positions.exists():
-            return api_response_error("Нельзя сформировать пустую заявку", status=400)
-        
-        # расчёт стоимости (50 руб за куб)
-        total_consumption = sum(p.consumption for p in positions)
-        total_cost = total_consumption * 50
-        
-        req.status = 'submitted'
-        req.submitted_at = timezone.now()
-        req.total_consumption = total_consumption
-        req.amount_to_pay = total_cost
-        req.save()
-        
-        return api_response_success(message="Заявка сформирована", data={"request_id": req.id})
-    except Exception as e:
-        return api_response_error(str(e), status=400)
-
+    current_user = get_current_user()
+    req = get_object_or_404(Request, id=request_id, user=current_user, status='draft')
+    
+    positions = ReadingPosition.objects.filter(request=req)
+    if not positions.exists():
+        return api_response_error("Нельзя сформировать пустую заявку", status=400)
+    
+    total_consumption = sum(p.consumption for p in positions)
+    total_cost = total_consumption * 50
+    
+    req.status = 'submitted'
+    req.submitted_at = timezone.now()
+    req.total_consumption = total_consumption
+    req.amount_to_pay = total_cost
+    req.save()
+    
+    return api_response_success(message="Заявка сформирована", data={"request_id": req.id})
 
 @csrf_exempt
 @require_http_methods(["PUT"])
@@ -461,10 +454,22 @@ def api_reject_request(request, request_id):
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def api_delete_request(request, request_id):
-    """DELETE удаление заявки (черновик)"""
     try:
         current_user = get_current_user()
-        req = get_object_or_404(Request, id=request_id, user=current_user, status='draft')
+        req = get_object_or_404(Request, id=request_id, user=current_user)
+        
+        time_diff = timezone.now() - req.submitted_at if req.submitted_at else None
+        can_edit = (
+            req.status == 'draft' or 
+            (req.status == 'submitted' and time_diff and time_diff.total_seconds() <= 3600)
+        )
+        
+        print(f"DEBUG DELETE: status={req.status}, submitted_at={req.submitted_at}, time_diff={time_diff}, can_edit={can_edit}")
+        
+        if not can_edit:
+            return api_response_error("Нельзя удалить: заявка не редактируема", status=400)
+        
+        ReadingPosition.objects.filter(request=req).delete()
         req.status = 'deleted'
         req.save()
         return api_response_success(message="Заявка удалена")
@@ -475,27 +480,27 @@ def api_delete_request(request, request_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_position_add(request):
-    """POST добавить услугу в черновик"""
     try:
         data = json.loads(request.body)
         meter_id = data.get('meter_id')
         current_reading = data.get('current_reading')
+        request_id = data.get('request_id')  # может быть None
         
         current_user = get_current_user()
         meter = get_object_or_404(WaterMeter, id=meter_id)
         
-        # находим или создаём черновик
-        draft, created = Request.objects.get_or_create(
-            status='draft',
-            user=current_user,
-            defaults={'status': 'draft', 'user': current_user}
-        )
+        # Если передан request_id — используем его, иначе ищем черновик
+        if request_id:
+            draft = get_object_or_404(Request, id=request_id, user=current_user, status='draft')
+        else:
+            draft = Request.objects.filter(status='draft', user=current_user).first()
+            if not draft:
+                draft = Request.objects.create(status='draft', user=current_user)
         
         consumption = int(current_reading) - meter.last_verified_reading
         if consumption < 0:
             return api_response_error("Текущие показания не могут быть меньше предыдущих", status=400)
         
-        # проверяем, не добавлена ли уже эта услуга
         existing = ReadingPosition.objects.filter(request=draft, water_meter=meter).first()
         if existing:
             return api_response_error("Услуга уже добавлена в заявку", status=400)
@@ -507,7 +512,7 @@ def api_position_add(request):
             consumption=consumption
         )
         
-        return api_response_success(data={"position_id": position.id, "request_id": draft.id}, message="Услуга добавлена в заявку")
+        return api_response_success(data={"position_id": position.id, "request_id": draft.id}, message="Услуга добавлена")
     except Exception as e:
         return api_response_error(str(e), status=400)
 
@@ -521,17 +526,26 @@ def api_position_update(request, position_id):
         current_reading = data.get('current_reading')
         
         position = get_object_or_404(ReadingPosition, id=position_id)
+        request_obj = position.request
         
-        # Проверка: можно редактировать только в течение 1 часа
-        time_diff = timezone.now() - position.created_at
-        if time_diff.total_seconds() > 3600:
-            return api_response_error(
-                "Редактирование показаний доступно только в течение часа после создания", 
-                status=403
-            )
+        # Проверка: можно редактировать только в течение часа после создания ИЛИ если черновик
+        time_diff_created = timezone.now() - position.created_at
+        time_diff_submitted = timezone.now() - request_obj.submitted_at if request_obj.submitted_at else None
         
-        if position.request.status != 'draft':
-            return api_response_error("Нельзя изменить позицию в не черновике", status=400)
+        can_edit = (
+            request_obj.status == 'draft' or 
+            (request_obj.status == 'submitted' and time_diff_submitted and time_diff_submitted.total_seconds() <= 3600)
+        )
+        
+        # Дополнительная проверка: в течение часа после создания позиции
+        if time_diff_created.total_seconds() > 3600:
+            return api_response_error("Редактирование показаний доступно только в течение часа после создания", status=403)
+        
+        if not can_edit:
+            return api_response_error("Нельзя изменить: заявка не редактируема", status=400)
+        
+        if position.request.status != 'draft' and position.request.status != 'submitted':
+            return api_response_error("Нельзя изменить позицию в не черновике и не отправленной заявке", status=400)
         
         consumption = int(current_reading) - position.water_meter.last_verified_reading
         if consumption < 0:
@@ -549,11 +563,21 @@ def api_position_update(request, position_id):
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def api_position_delete(request, position_id):
-    """DELETE удаление услуги из заявки (без PK м-м)"""
     try:
         position = get_object_or_404(ReadingPosition, id=position_id)
-        if position.request.status != 'draft':
-            return api_response_error("Нельзя удалить из не черновика", status=400)
+        request_obj = position.request
+        time_diff = timezone.now() - request_obj.submitted_at if request_obj.submitted_at else None
+        
+        can_edit = (
+            request_obj.status == 'draft' or 
+            (request_obj.status == 'submitted' and time_diff and time_diff.total_seconds() <= 3600)
+        )
+        
+        print(f"DEBUG DELETE POS: status={request_obj.status}, submitted_at={request_obj.submitted_at}, time_diff={time_diff}, can_edit={can_edit}")
+        
+        if not can_edit:
+            return api_response_error("Нельзя удалить: заявка не редактируема", status=400)
+        
         position.delete()
         return api_response_success(message="Позиция удалена")
     except Exception as e:
