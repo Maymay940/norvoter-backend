@@ -520,7 +520,6 @@ def api_position_add(request):
 @csrf_exempt
 @require_http_methods(["PUT"])
 def api_position_update(request, position_id):
-    """PUT изменение поля м-м (текущие показания) с проверкой времени"""
     try:
         data = json.loads(request.body)
         current_reading = data.get('current_reading')
@@ -528,24 +527,22 @@ def api_position_update(request, position_id):
         position = get_object_or_404(ReadingPosition, id=position_id)
         request_obj = position.request
         
-        # Проверка: можно редактировать только в течение часа после создания ИЛИ если черновик
-        time_diff_created = timezone.now() - position.created_at
-        time_diff_submitted = timezone.now() - request_obj.submitted_at if request_obj.submitted_at else None
+        if position.request.status != 'draft':
+            return api_response_error("Нельзя изменить: заявка не в черновике", status=400)
         
-        can_edit = (
-            request_obj.status == 'draft' or 
-            (request_obj.status == 'submitted' and time_diff_submitted and time_diff_submitted.total_seconds() <= 3600)
-        )
-        
-        # Дополнительная проверка: в течение часа после создания позиции
-        if time_diff_created.total_seconds() > 3600:
-            return api_response_error("Редактирование показаний доступно только в течение часа после создания", status=403)
+        # Проверка статуса заявки
+        if request_obj.status == 'submitted' and request_obj.submitted_at:
+            if timezone.is_naive(request_obj.submitted_at):
+                submitted_at_aware = timezone.make_aware(request_obj.submitted_at)
+            else:
+                submitted_at_aware = request_obj.submitted_at
+            time_diff_submitted = timezone.now() - submitted_at_aware
+            can_edit = time_diff_submitted.total_seconds() <= 3600
+        else:
+            can_edit = (request_obj.status == 'draft')
         
         if not can_edit:
             return api_response_error("Нельзя изменить: заявка не редактируема", status=400)
-        
-        if position.request.status != 'draft' and position.request.status != 'submitted':
-            return api_response_error("Нельзя изменить позицию в не черновике и не отправленной заявке", status=400)
         
         consumption = int(current_reading) - position.water_meter.last_verified_reading
         if consumption < 0:
@@ -566,17 +563,9 @@ def api_position_delete(request, position_id):
     try:
         position = get_object_or_404(ReadingPosition, id=position_id)
         request_obj = position.request
-        time_diff = timezone.now() - request_obj.submitted_at if request_obj.submitted_at else None
         
-        can_edit = (
-            request_obj.status == 'draft' or 
-            (request_obj.status == 'submitted' and time_diff and time_diff.total_seconds() <= 3600)
-        )
-        
-        print(f"DEBUG DELETE POS: status={request_obj.status}, submitted_at={request_obj.submitted_at}, time_diff={time_diff}, can_edit={can_edit}")
-        
-        if not can_edit:
-            return api_response_error("Нельзя удалить: заявка не редактируема", status=400)
+        if position.request.status != 'draft':
+            return api_response_error("Нельзя удалить: заявка не в черновике", status=400)
         
         position.delete()
         return api_response_success(message="Позиция удалена")
@@ -609,11 +598,6 @@ def api_register(request):
         return api_response_success(data={"id": user.id, "username": user.username}, message="Пользователь зарегистрирован")
     except Exception as e:
         return api_response_error(str(e), status=400)
-    
-def check_moderator(user):
-    if not user.is_admin:
-        return api_response_error("Доступ только для модератора", status=403)
-    return None
 
 
 @csrf_exempt

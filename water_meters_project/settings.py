@@ -71,6 +71,9 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "meters")
 
+MINIO_INTERNAL_ENDPOINT = "http://minio:9000"
+MINIO_EXTERNAL_ENDPOINT = "http://localhost:9002"
+
 # валидация пароля
 AUTH_PASSWORD_VALIDATORS = [...]
 
@@ -79,6 +82,18 @@ LANGUAGE_CODE = "ru-ru"
 TIME_ZONE = "Europe/Moscow"
 USE_I18N = True
 USE_TZ = True
+
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+AWS_ACCESS_KEY_ID = MINIO_ACCESS_KEY
+AWS_SECRET_ACCESS_KEY = MINIO_SECRET_KEY
+AWS_STORAGE_BUCKET_NAME = MINIO_BUCKET
+AWS_S3_ENDPOINT_URL = MINIO_INTERNAL_ENDPOINT
+AWS_S3_USE_SSL = False
+AWS_S3_VERIFY = False
+AWS_DEFAULT_ACL = 'public-read'
+
+AWS_S3_CUSTOM_DOMAIN = 'localhost:9002'
+AWS_S3_URL_PROTOCOL = 'http:'
 
 # статические файлы
 STATIC_URL = "static/"
