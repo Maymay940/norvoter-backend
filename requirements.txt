@@ -6,3 +6,6 @@ django-cors-headers
 djangorestframework
 django-storages
 boto3
+drf-spectacular
+django-redis
+redis

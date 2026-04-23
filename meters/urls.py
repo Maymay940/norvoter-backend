@@ -2,6 +2,8 @@ from django.urls import path
 
 from . import views
 
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
 urlpatterns = [
     # API эндпоинты 
     # услуги (счетчики воды)
@@ -38,5 +40,8 @@ urlpatterns = [
     path("requests/", views.request_list, name="request_list"),  # заявки
     path("requests/<int:request_id>/", views.request_detail, name="request_detail"),  # заявки(переход внутрь)
     path("submit-request/<int:request_id>/", views.submit_request, name="submit_request"),  # статус отправлено
-    path("delete-request/<int:request_id>/", views.delete_request, name="delete_request"),  # статус удалено
+    #path("delete-request/<int:request_id>/", views.delete_request, name="delete_request"),  # статус удалено
+
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
