@@ -34,7 +34,7 @@ urlpatterns = [
     path("api/users/login/", views.api_login, name="api_login"),  # post аутентификация (заглушка)
     path("api/users/logout/", views.api_logout, name="api_logout"),  # post деавторизация (заглушка)
 
-    # основные html страницы (фронтенд)
+    # основные html страницы 
     path("", views.meter_list, name="meter_list"),  # главная
     path("meters/<int:meter_id>/", views.meter_detail, name="meter_detail"),  # счетчики
     path("requests/", views.request_list, name="request_list"),  # заявки

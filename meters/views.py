@@ -35,7 +35,7 @@ def get_current_user(request=None):
 
 
 def api_response_success(data=None, message=None):
-    """Формирует успешный JSON-ответ"""
+    # формирует успешный JSON-ответ
     response = {"success": True}
     if data is not None:
         response["data"] = data
@@ -45,7 +45,7 @@ def api_response_success(data=None, message=None):
 
 
 def api_response_error(error, status=400):
-    """Формирует JSON-ответ с ошибкой"""
+    # формирует JSON-ответ с ошибкой
     return JsonResponse({"success": False, "error": error}, status=status)
 
 
@@ -276,7 +276,7 @@ def api_requests(request):
     try:
         current_user = get_current_user(request)
         
-        # Проверка: если пользователь не авторизован — возвращаем 403
+        # если пользователь не авторизован — возвращаем 403
         if not current_user:
             return api_response_error("Не авторизован", status=403)
         
@@ -435,20 +435,18 @@ def api_delete_request(request, request_id):
     try:
         current_user = get_current_user(request)
         
-        # Если админ — может удалить любую заявку
+        # если админ, то может удалить любую заявку
         if current_user.is_admin:
             req = get_object_or_404(Request, id=request_id)
         else:
             req = get_object_or_404(Request, id=request_id, user=current_user)
         
-        # Черновик можно удалить всегда
         if req.status == 'draft':
             ReadingPosition.objects.filter(request=req).delete()
             req.status = 'deleted'
             req.save()
             return api_response_success(message="Черновик удалён")
         
-        # Отправленную заявку можно удалить только в течение часа
         if req.status == 'submitted' and req.submitted_at:
             time_diff = timezone.now() - req.submitted_at
             if time_diff.total_seconds() <= 3600:
@@ -558,8 +556,8 @@ def api_position_delete(request, position_id):
         return api_response_error(str(e), status=400)
 
 
-@extend_schema(request=RegisterSerializer)
-@api_view(['POST'])
+import hashlib
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_register(request):
@@ -567,6 +565,7 @@ def api_register(request):
         data = json.loads(request.body)
         username = data.get('username')
         email = data.get('email')
+        password = data.get('password')
         first_name = data.get('first_name', '')
         last_name = data.get('last_name', '')
         phone = data.get('phone', '')
@@ -574,9 +573,12 @@ def api_register(request):
         if User.objects.filter(username=username).exists():
             return api_response_error("Пользователь с таким именем уже существует", status=400)
         
+        hashed_password = hashlib.md5(password.encode()).hexdigest()
+        
         user = User.objects.create(
             username=username,
             email=email,
+            password=hashed_password,  
             first_name=first_name,
             last_name=last_name,
             phone=phone,
@@ -600,7 +602,7 @@ def api_login(request):
         username = data.get('username')
         password = data.get('password')
         
-        # Хешируем введённый пароль MD5
+        # хешируем введённый пароль MD5
         hashed_password = hashlib.md5(password.encode()).hexdigest()
         
         try:

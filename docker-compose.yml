@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: postgres2
       POSTGRES_PASSWORD: 1qaz
     ports:
-      - "5433:5432"              # ← другой порт, чтобы не конфликтовать
+      - "5433:5432"              
     volumes:
       - copy_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
     container_name: copy_norvoter_adminer
     restart: unless-stopped
     ports:
-      - "8081:8080"              # ← другой порт
+      - "8081:8080"              
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,8 +37,8 @@ services:
     container_name: copy_norvoter_minio
     restart: unless-stopped
     ports:
-      - "9002:9000"              # ← другой порт API
-      - "9003:9001"              # ← другой порт консоли
+      - "9002:9000"             
+      - "9003:9001"             
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
@@ -56,7 +56,7 @@ services:
     container_name: copy_norvoter_backend
     restart: unless-stopped
     ports:
-      - "8001:8000"              # ← другой порт
+      - "8001:8000"             
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,7 +84,7 @@ services:
     container_name: copy_norvoter_frontend
     restart: unless-stopped
     ports:
-      - "81:80"                  # ← другой порт
+      - "81:80"                  
     depends_on:
       - backend
 

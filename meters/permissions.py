@@ -4,7 +4,7 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
             return True
-        # Получаем пользователя из сессии
+        # пользователь из сессии
         user_id = request.session.get('user_id')
         if not user_id:
             return False
