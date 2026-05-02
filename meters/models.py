@@ -20,6 +20,21 @@ class User(models.Model):
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"
 
+class PersonalAccount(models.Model):
+    account_number = models.CharField("Номер лицевого счёта", max_length=50, unique=True, db_column='account_number')
+    address = models.CharField("Адрес", max_length=255, db_column='address')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='accounts', db_column='user_id')
+    is_active = models.BooleanField("Активен", default=True, db_column='is_active')
+    created_at = models.DateTimeField("Дата создания", auto_now_add=True, db_column='created_at')
+    
+    def __str__(self):
+        return f"{self.account_number} - {self.address}"
+    
+    class Meta:
+        db_table = 'personal_accounts'
+        verbose_name = 'Лицевой счёт'
+        verbose_name_plural = 'Лицевые счета'
+
 
 class WaterMeter(models.Model):
     HOT = "HOT"
@@ -29,7 +44,8 @@ class WaterMeter(models.Model):
         (COLD, "ХВС"),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.RESTRICT, related_name="meters", db_column="user_id")
+    #user = models.ForeignKey(User, on_delete=models.RESTRICT, related_name="meters", db_column="user_id")
+    account = models.ForeignKey(PersonalAccount, on_delete=models.RESTRICT, related_name='meters', null=True, blank=True, db_column='account_id')
     address = models.CharField("Адрес", max_length=255, db_column="address")
     serial_number = models.CharField("Заводской номер", max_length=50, unique=True, db_column="serial_number")
     meter_type = models.CharField("Тип", max_length=10, choices=METER_TYPES, db_column="meter_type")
@@ -61,7 +77,6 @@ class WaterMeter(models.Model):
         verbose_name = "Счетчик"
         verbose_name_plural = "Счетчики"
         indexes = [
-            models.Index(fields=["user", "address"]),
             models.Index(fields=["serial_number"]),
         ]
 

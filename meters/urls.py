@@ -33,8 +33,10 @@ urlpatterns = [
     path("api/users/register/", views.api_register, name="api_register"),  # post регистрация
     path("api/users/login/", views.api_login, name="api_login"),  # post аутентификация (заглушка)
     path("api/users/logout/", views.api_logout, name="api_logout"),  # post деавторизация (заглушка)
+    path("api/free-accounts/", views.api_free_accounts, name="api_free_accounts"),
 
     # основные html страницы 
+    path("login.html", views.login_page, name="login_page"),
     path("", views.meter_list, name="meter_list"),  # главная
     path("meters/<int:meter_id>/", views.meter_detail, name="meter_detail"),  # счетчики
     path("requests/", views.request_list, name="request_list"),  # заявки

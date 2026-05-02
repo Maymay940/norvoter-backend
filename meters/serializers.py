@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import User, WaterMeter, Request, ReadingPosition
+from .models import ReadingPosition, Request, User, WaterMeter, PersonalAccount
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,6 +38,7 @@ class RegisterSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=100)
     email = serializers.EmailField()
     password = serializers.CharField(max_length=255)
+    account_number = serializers.CharField(max_length=50)  # ← добавить
     first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
@@ -60,3 +62,8 @@ class MeterAddSerializer(serializers.Serializer):
     installation_date = serializers.DateField()
     initial_reading = serializers.IntegerField(default=0)
     last_verified_reading = serializers.IntegerField(default=0)
+
+class PersonalAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PersonalAccount
+        fields = ['id', 'account_number', 'address', 'is_active']

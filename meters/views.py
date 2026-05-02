@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import hashlib
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -14,18 +15,19 @@ from django.views.decorators.http import require_http_methods
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
-from .models import ReadingPosition, Request, User, WaterMeter
+from .models import ReadingPosition, Request, User, WaterMeter, PersonalAccount
 from .serializers import (
     LoginSerializer, RegisterSerializer, PositionAddSerializer,
     PositionUpdateSerializer, RequestUpdateSerializer, MeterAddSerializer
 )
 
 
-# получение текущего пользователя (для заявок, потом понадобится)
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
 def get_current_user(request=None):
+    """Получение текущего пользователя из сессии"""
     if request and hasattr(request, 'session'):
         user_id = request.session.get('user_id')
-        print(f"get_current_user: user_id={user_id}")
         if user_id:
             try:
                 return User.objects.get(id=user_id)
@@ -35,7 +37,7 @@ def get_current_user(request=None):
 
 
 def api_response_success(data=None, message=None):
-    # формирует успешный JSON-ответ
+    """Формирует успешный JSON-ответ"""
     response = {"success": True}
     if data is not None:
         response["data"] = data
@@ -45,21 +47,27 @@ def api_response_success(data=None, message=None):
 
 
 def api_response_error(error, status=400):
-    # формирует JSON-ответ с ошибкой
+    """Формирует JSON-ответ с ошибкой"""
     return JsonResponse({"success": False, "error": error}, status=status)
 
 
 def meter_list(request):
+    # Проверка авторизации
+    current_user = get_current_user(request)
+    if not current_user:
+        return redirect('login_page')  # перенаправляем на страницу входа
+    
     search_query = request.GET.get("search", "")
     meters = WaterMeter.objects.filter(is_active=True)
     if search_query:
         meters = meters.filter(address__icontains=search_query)
 
-    current_user = get_current_user(request)
     if current_user.is_admin:
         meters = WaterMeter.objects.filter(is_active=True)
     else:
-        meters = WaterMeter.objects.filter(is_active=True, user=current_user)
+        # Получаем счётчики через лицевые счета пользователя
+        user_accounts = PersonalAccount.objects.filter(user=current_user).values_list('id', flat=True)
+        meters = WaterMeter.objects.filter(is_active=True, account_id__in=user_accounts)
 
     draft_request = Request.objects.filter(status="draft", user=current_user).first()
     if draft_request:
@@ -80,6 +88,9 @@ def meter_detail(request, meter_id):
 
 def request_list(request):
     current_user = get_current_user(request)
+    if not current_user:
+        return redirect("login_page")
+    
     requests_list = Request.objects.filter(user=current_user).exclude(status="deleted").order_by("-created_at")
     for req in requests_list:
         req.positions_count = ReadingPosition.objects.filter(request=req).count()
@@ -88,12 +99,17 @@ def request_list(request):
 
 def request_detail(request, request_id):
     current_user = get_current_user(request)
+    if not current_user:
+        return redirect("login_page")
+    
     request_obj = get_object_or_404(Request, id=request_id, user=current_user)
     if request_obj.status == "deleted":
         return redirect("request_list")
+    
     positions = ReadingPosition.objects.filter(request=request_obj).select_related("water_meter")
     total_consumption = sum(p.consumption for p in positions)
     amount_to_pay = total_consumption * 50
+    
     context = {
         "request_obj": request_obj,
         "positions": positions,
@@ -101,6 +117,14 @@ def request_detail(request, request_id):
         "amount_to_pay": amount_to_pay,
     }
     return render(request, "meters/request_detail.html", context)
+
+
+def register_page(request):
+    return render(request, "meters/register.html")
+
+
+def login_page(request):
+    return render(request, "meters/login.html")
 
 
 @csrf_exempt
@@ -113,12 +137,18 @@ def add_reading(request):
         meter_id = data.get("meter_id")
         current_reading = data.get("current_reading")
         current_user = get_current_user(request)
+        
+        if not current_user:
+            return api_response_error("Не авторизован", status=401)
+        
         meter = get_object_or_404(WaterMeter, id=meter_id)
         draft_request = Request.objects.filter(status="draft", user=current_user).first()
         if not draft_request:
             draft_request = Request.objects.create(status="draft", user=current_user)
+        
         existing_position = ReadingPosition.objects.filter(request=draft_request, water_meter=meter).first()
         consumption = int(current_reading) - meter.last_verified_reading
+        
         if existing_position:
             existing_position.current_reading = current_reading
             existing_position.consumption = consumption
@@ -137,6 +167,9 @@ def add_reading(request):
 
 def submit_request(request, request_id):
     current_user = get_current_user(request)
+    if not current_user:
+        return redirect("login_page")
+    
     request_obj = get_object_or_404(Request, id=request_id, user=current_user)
     if request_obj.status == "draft":
         request_obj.status = "submitted"
@@ -148,6 +181,9 @@ def submit_request(request, request_id):
 def delete_request(request, request_id):
     if request.method == "POST":
         current_user = get_current_user(request)
+        if not current_user:
+            return redirect("login_page")
+        
         with connection.cursor() as cursor:
             cursor.execute(
                 "UPDATE requests SET status = 'deleted' WHERE id = %s AND user_id = %s",
@@ -157,23 +193,28 @@ def delete_request(request, request_id):
     return redirect("request_list")
 
 
+# ==================== API ЭНДПОИНТЫ ====================
+
 @extend_schema(
     responses={200: OpenApiResponse(description='Успешный ответ')},
     operation_id='meters_list'
 )
 @api_view(['GET'])
 def api_meters(request):
-
     try:
         current_user = get_current_user(request)
         if current_user and current_user.is_admin:
             meters = WaterMeter.objects.filter(is_active=True)
+        elif current_user:
+            user_accounts = PersonalAccount.objects.filter(user=current_user).values_list('id', flat=True)
+            meters = WaterMeter.objects.filter(is_active=True, account_id__in=user_accounts)
         else:
-            meters = WaterMeter.objects.filter(is_active=True, user=current_user) if current_user else WaterMeter.objects.filter(is_active=True)
+            return api_response_error("Не авторизован", status=401)
+        
         address = request.GET.get('address', '')
         if address:
             meters = meters.filter(address__icontains=address)
-
+        
         data = list(meters.values(
             "id", "address", "serial_number", "meter_type",
             "meter_model", "installation_date", "last_verified_reading",
@@ -181,12 +222,11 @@ def api_meters(request):
         ))
         return api_response_success(data=data)
     except Exception as e:
-        return api_response_error(f"Ошибка получения счетчиков: {str(e)}", status=500)
+        return api_response_error(f"Ошибка: {str(e)}", status=500)
 
 
 @api_view(['GET'])
 def api_meter_detail(request, meter_id):
-
     try:
         meter = WaterMeter.objects.get(id=meter_id, is_active=True)
         data = {
@@ -212,7 +252,6 @@ def api_meter_detail(request, meter_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_meter_add(request):
-
     try:
         address = request.POST.get('address')
         serial_number = request.POST.get('serial_number')
@@ -221,7 +260,6 @@ def api_meter_add(request):
         installation_date = request.POST.get('installation_date')
         initial_reading = request.POST.get('initial_reading', 0)
         last_verified_reading = request.POST.get('last_verified_reading', 0)
-
         
         photo = request.FILES.get('photo')
         photo_url = None
@@ -230,7 +268,6 @@ def api_meter_add(request):
             filename = f"imagers/meter_{uuid.uuid4().hex}{ext}"
             path = default_storage.save(filename, ContentFile(photo.read()))
             photo_url = f"http://localhost:9002/{settings.MINIO_BUCKET}/{path}"
-
         
         video = request.FILES.get('video')
         video_url = None
@@ -241,8 +278,14 @@ def api_meter_add(request):
             video_url = f"http://localhost:9002/{settings.MINIO_BUCKET}/{path}"
         
         current_user = get_current_user(request)
+        if not current_user:
+            return api_response_error("Не авторизован", status=401)
+        
+        # Находим лицевой счёт пользователя
+        account = PersonalAccount.objects.filter(user=current_user).first()
+        
         meter = WaterMeter.objects.create(
-            user=current_user,
+            account=account,
             address=address,
             serial_number=serial_number,
             meter_type=meter_type,
@@ -253,7 +296,6 @@ def api_meter_add(request):
             photo_url=photo_url,
             setup_video_url=video_url
         )
-
         return api_response_success(data={"id": meter.id}, message="Счётчик добавлен")
     except Exception as e:
         return api_response_error(str(e), status=400)
@@ -262,6 +304,9 @@ def api_meter_add(request):
 @api_view(['GET'])
 def api_cart(request):
     current_user = get_current_user(request)
+    if not current_user:
+        return api_response_success(data={"request_id": None, "items_count": 0})
+    
     draft = Request.objects.filter(status='draft', user=current_user).first()
     if not draft:
         return api_response_success(data={"request_id": None, "items_count": 0})
@@ -272,15 +317,12 @@ def api_cart(request):
 
 @api_view(['GET'])
 def api_requests(request):
-    
     try:
         current_user = get_current_user(request)
-        
-        # если пользователь не авторизован — возвращаем 403
         if not current_user:
             return api_response_error("Не авторизован", status=403)
         
-        if current_user and current_user.is_admin:
+        if current_user.is_admin:
             queryset = Request.objects.exclude(status='deleted')
         else:
             queryset = Request.objects.filter(user=current_user).exclude(status='deleted')
@@ -310,7 +352,6 @@ def api_requests(request):
                 "amount_to_pay": float(req.amount_to_pay) if req.amount_to_pay else None,
                 "comment": req.comment,
             })
-        
         return api_response_success(data={"requests": result})
     except Exception as e:
         return api_response_error(f"Ошибка получения заявок: {str(e)}", status=500)
@@ -318,17 +359,17 @@ def api_requests(request):
 
 @api_view(['GET'])
 def api_request_detail(request, request_id):
-
     try:
         current_user = get_current_user(request)
-        if current_user and current_user.is_admin:
+        if not current_user:
+            return api_response_error("Не авторизован", status=403)
+        
+        if current_user.is_admin:
             request_obj = get_object_or_404(Request, id=request_id)
         else:
             request_obj = get_object_or_404(Request, id=request_id, user=current_user)
         
-
         positions = ReadingPosition.objects.filter(request=request_obj).select_related("water_meter")
-
         positions_data = []
         for pos in positions:
             positions_data.append({
@@ -366,6 +407,9 @@ def api_request_update(request, request_id):
     try:
         data = json.loads(request.body)
         current_user = get_current_user(request)
+        if not current_user:
+            return api_response_error("Не авторизован", status=401)
+        
         req = get_object_or_404(Request, id=request_id, user=current_user, status='draft')
         if 'comment' in data:
             req.comment = data['comment']
@@ -380,12 +424,17 @@ def api_request_update(request, request_id):
 @require_http_methods(["PUT"])
 def api_submit_request(request, request_id):
     current_user = get_current_user(request)
+    if not current_user:
+        return api_response_error("Не авторизован", status=401)
+    
     req = get_object_or_404(Request, id=request_id, user=current_user, status='draft')
     positions = ReadingPosition.objects.filter(request=req)
     if not positions.exists():
         return api_response_error("Нельзя сформировать пустую заявку", status=400)
+    
     total_consumption = sum(p.consumption for p in positions)
     total_cost = total_consumption * 50
+    
     req.status = 'submitted'
     req.submitted_at = timezone.now()
     req.total_consumption = total_consumption
@@ -402,6 +451,7 @@ def api_complete_request(request, request_id):
         current_user = get_current_user(request)
         if not current_user or not current_user.is_admin:
             return api_response_error("Доступ только для модератора", status=403)
+        
         req = get_object_or_404(Request, id=request_id, status='submitted')
         req.status = 'completed'
         req.completed_at = timezone.now()
@@ -419,6 +469,7 @@ def api_reject_request(request, request_id):
         current_user = get_current_user(request)
         if not current_user or not current_user.is_admin:
             return api_response_error("Доступ только для модератора", status=403)
+        
         req = get_object_or_404(Request, id=request_id, status='submitted')
         req.status = 'rejected'
         req.completed_at = timezone.now()
@@ -434,8 +485,9 @@ def api_reject_request(request, request_id):
 def api_delete_request(request, request_id):
     try:
         current_user = get_current_user(request)
+        if not current_user:
+            return api_response_error("Не авторизован", status=401)
         
-        # если админ, то может удалить любую заявку
         if current_user.is_admin:
             req = get_object_or_404(Request, id=request_id)
         else:
@@ -474,6 +526,9 @@ def api_position_add(request):
         request_id = data.get('request_id')
         
         current_user = get_current_user(request)
+        if not current_user:
+            return api_response_error("Не авторизован", status=401)
+        
         meter = get_object_or_404(WaterMeter, id=meter_id)
         
         if request_id:
@@ -556,8 +611,8 @@ def api_position_delete(request, position_id):
         return api_response_error(str(e), status=400)
 
 
-import hashlib
-
+@extend_schema(request=RegisterSerializer)
+@api_view(['POST'])
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_register(request):
@@ -566,6 +621,7 @@ def api_register(request):
         username = data.get('username')
         email = data.get('email')
         password = data.get('password')
+        account_number = data.get('account_number')
         first_name = data.get('first_name', '')
         last_name = data.get('last_name', '')
         phone = data.get('phone', '')
@@ -573,23 +629,32 @@ def api_register(request):
         if User.objects.filter(username=username).exists():
             return api_response_error("Пользователь с таким именем уже существует", status=400)
         
+        try:
+            account = PersonalAccount.objects.get(account_number=account_number)
+        except PersonalAccount.DoesNotExist:
+            return api_response_error("Лицевой счёт не найден", status=400)
+        
+        if account.user_id is not None:
+            return api_response_error("Лицевой счёт уже привязан к другому пользователю", status=400)
+        
         hashed_password = hashlib.md5(password.encode()).hexdigest()
         
         user = User.objects.create(
             username=username,
             email=email,
-            password=hashed_password,  
+            password=hashed_password,
             first_name=first_name,
             last_name=last_name,
             phone=phone,
             is_active=True
         )
+        
+        account.user = user
+        account.save()
+        
         return api_response_success(data={"id": user.id, "username": user.username}, message="Пользователь зарегистрирован")
     except Exception as e:
         return api_response_error(str(e), status=400)
-
-
-import hashlib
 
 
 @extend_schema(request=LoginSerializer)
@@ -602,7 +667,6 @@ def api_login(request):
         username = data.get('username')
         password = data.get('password')
         
-        # хешируем введённый пароль MD5
         hashed_password = hashlib.md5(password.encode()).hexdigest()
         
         try:
@@ -622,6 +686,16 @@ def api_login(request):
         }, message="Успешный вход")
     except Exception as e:
         return api_response_error(str(e), status=400)
+
+
+@api_view(['GET'])
+def api_free_accounts(request):
+    """GET список лицевых счетов, не привязанных к пользователю"""
+    try:
+        accounts = PersonalAccount.objects.filter(user__isnull=True).values('id', 'account_number', 'address')
+        return api_response_success(data=list(accounts))
+    except Exception as e:
+        return api_response_error(f"Ошибка: {str(e)}", status=500)
 
 
 @api_view(['POST'])
